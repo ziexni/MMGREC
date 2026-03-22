@@ -29,6 +29,7 @@ from torch_geometric.nn import SAGEConv
 batch_size     = 3000
 step_threshold = 500
 epoch_max      = 60
+gcn_patience   = 10     # GCN early stopping patience
 gcn_hidden     = 128
 gcn_out        = 64
 cat_embed_dim  = 32
@@ -37,6 +38,7 @@ rqvae_hidden   = 16
 rqvae_out      = 4
 n_embed        = 128
 rqvae_epochs   = 60
+rqvae_patience = 10     # RQ-VAE early stopping patience
 rqvae_lr       = 1e-3
 l_w_embedding  = 1.0
 l_w_commitment = 0.25
@@ -126,11 +128,16 @@ gcn = GCN(vt_feat.shape[1], cat_num, cat_embed_dim,
 optimizer_gcn = torch.optim.Adam(gcn.parameters(), lr=1e-3, weight_decay=1e-6)
 
 # ─────────────────────────────────────────────────────────────
-# 8. GCN 학습 (BPR loss)
+# 8. GCN 학습 (BPR loss + early stopping)
 # ─────────────────────────────────────────────────────────────
 gcn.train()
+best_gcn_loss  = float('inf')
+patience_count = 0
+best_gcn_state = None
+
 for epoch in range(epoch_max):
     running_loss = 0.0
+    epoch_loss   = 0.0
     for step, (bi, bj, bm) in enumerate(train_loader):
         out = gcn(vt_lookup, cat_indices_tensor, cat_offsets_tensor, edge_index)
 
@@ -147,9 +154,30 @@ for epoch in range(epoch_max):
         optimizer_gcn.step()
 
         running_loss += loss.item()
+        epoch_loss   += loss.item()
         if (step + 1) % step_threshold == 0:
             print(f'[epoch {epoch+1}, step {step+1}] loss: {running_loss/step_threshold:.5f}')
             running_loss = 0.0
+
+    avg_loss = epoch_loss / len(train_loader)
+    print(f'[epoch {epoch+1}] avg loss: {avg_loss:.5f}')
+
+    # early stopping
+    if avg_loss < best_gcn_loss:
+        best_gcn_loss  = avg_loss
+        best_gcn_state = {k: v.clone() for k, v in gcn.state_dict().items()}
+        patience_count = 0
+        print(f'  ✓ best model updated (loss={best_gcn_loss:.5f})')
+    else:
+        patience_count += 1
+        print(f'  patience {patience_count}/{gcn_patience}')
+        if patience_count >= gcn_patience:
+            print(f'Early stopping at epoch {epoch+1}')
+            break
+
+# best 모델로 복원
+gcn.load_state_dict(best_gcn_state)
+print(f'GCN best loss: {best_gcn_loss:.5f}')
 
 gcn.eval()
 with torch.no_grad():
@@ -201,7 +229,11 @@ opt     = torch.optim.Adam(model.parameters(), rqvae_lr, weight_decay=1e-4)
 mse     = nn.MSELoss()
 
 model.train()
-tic = time.time()
+tic            = time.time()
+best_rqvae_loss  = float('inf')
+patience_count   = 0
+best_rqvae_state = None
+
 for e in range(rqvae_epochs):
     total = 0
     for x in loader:
@@ -215,6 +247,23 @@ for e in range(rqvae_epochs):
         total += loss.item() * x.size(0)
     total /= len(loader.dataset)
     print(f'RQ-VAE epoch {e} loss: {total:.5f} elapsed {time.time()-tic:.1f}s')
+
+    # early stopping
+    if total < best_rqvae_loss:
+        best_rqvae_loss  = total
+        best_rqvae_state = {k: v.clone() for k, v in model.state_dict().items()}
+        patience_count   = 0
+        print(f'  ✓ best model updated (loss={best_rqvae_loss:.5f})')
+    else:
+        patience_count += 1
+        print(f'  patience {patience_count}/{rqvae_patience}')
+        if patience_count >= rqvae_patience:
+            print(f'RQ-VAE early stopping at epoch {e}')
+            break
+
+# best 모델로 복원
+model.load_state_dict(best_rqvae_state)
+print(f'RQ-VAE best loss: {best_rqvae_loss:.5f}')
 
 # ─────────────────────────────────────────────────────────────
 # 10. Semantic ID 추출 + collision 해결
