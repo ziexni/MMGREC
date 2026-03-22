@@ -66,7 +66,7 @@ for ct, inter in enumerate(train_ui):
             'train_m' : train_triple[:, 2]  # negative item
         }
 
-        pickle.dimp(p, open(f'triple_{para_index}.para', 'wb'))
+        pickle.dump(p, open(f'triple_{para_index}.para', 'wb'))
         print(f'triple_{para_index}.para saved')
 
         # 메모리 초기화
