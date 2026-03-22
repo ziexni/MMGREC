@@ -36,7 +36,7 @@ para_index = 0 #
 # triple 생성 루프
 for ct, inter in enumerate(train_ui):
 
-    user_id = iter[0] # user index
+    user_id = inter[0] # user index
 
     # 해당 유저가 interaction 하지 않은 item들 (negative 후보)
     can_item_ids = item_ids[~mtx[user_id]]
