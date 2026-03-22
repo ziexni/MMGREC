@@ -56,6 +56,7 @@ d_k = d_v = 64
 n_layers  = 2
 n_heads   = 4
 epoch_max = 100
+patience  = 10      # early stopping patience
 batch_size = 3000
 num_beams = 10
 tgt_len   = 4   # RQ-VAE code 길이 (c1, c2, c3, col)
@@ -275,11 +276,15 @@ class Transformer(nn.Module):
         return logits.view(-1, logits.size(-1)), enc_attns, dec_sa, dec_ea
 
 # ─────────────────────────────────────────────────────────────
-# 6. 학습
+# 6. 학습 (early stopping + best model 저장)
 # ─────────────────────────────────────────────────────────────
 model     = Transformer(src_emb_weight, user_emb_weight).cuda()
 criterion = nn.CrossEntropyLoss(ignore_index=0)
 optimizer = optim.SGD(model.parameters(), lr=1e-3, momentum=0.99, weight_decay=1e-5)
+
+best_loss       = float('inf')
+patience_count  = 0
+best_model_state = None
 
 model.train()
 for epoch in range(epoch_max):
@@ -294,7 +299,26 @@ for epoch in range(epoch_max):
         total_loss += loss.item()
         if (step + 1) % 20 == 0:
             print(f'Epoch {epoch+1:04d} | Step {step+1} | loss: {loss.item():.6f}')
-    print(f'=== Epoch {epoch+1} avg loss: {total_loss/len(loader):.6f} ===')
+
+    avg_loss = total_loss / len(loader)
+    print(f'=== Epoch {epoch+1} avg loss: {avg_loss:.6f} ===')
+
+    # early stopping
+    if avg_loss < best_loss:
+        best_loss        = avg_loss
+        best_model_state = {k: v.clone() for k, v in model.state_dict().items()}
+        patience_count   = 0
+        print(f'  ✓ best model updated (loss={best_loss:.6f})')
+    else:
+        patience_count += 1
+        print(f'  patience {patience_count}/{patience}')
+        if patience_count >= patience:
+            print(f'Early stopping at epoch {epoch+1}')
+            break
+
+# best 모델로 복원
+model.load_state_dict(best_model_state)
+print(f'Transformer best loss: {best_loss:.6f}')
 
 # ─────────────────────────────────────────────────────────────
 # 7. Beam Search 추론
