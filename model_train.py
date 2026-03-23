@@ -332,14 +332,18 @@ def beam_search(model, enc_input, u_input, num_beams, max_len):
     for _ in range(max_len):
         cands, c_scores = [], []
         for beam, score in zip(beams, scores):
-            dec_in          = torch.LongTensor([beam]).cuda()
+            dec_in = torch.LongTensor([beam]).cuda()
+            
+            # ✅ 인덱스 범위 초과 방지
+            dec_in = dec_in.clamp(0, tgt_vocab_size - 1)
+            
             dec_out, _, _   = model.decoder(dec_in, enc_input, enc_out)
             proj            = model.projection(dec_out).squeeze(0)[-1]
             probs           = sfm(proj)
             topk_p, topk_i  = torch.topk(probs, k=num_beams)
             for p, idx in zip(topk_p, topk_i):
                 t = idx.item()
-                if t in (E, S, P):
+                if t in (E, S, P) or t >= tgt_vocab_size:  # ✅ 범위 체크 추가
                     continue
                 cands.append(beam + [t])
                 c_scores.append(score * p.item())
