@@ -56,7 +56,7 @@ d_k = d_v = 64
 n_layers  = 2
 n_heads   = 4
 epoch_max = 100
-patience  = 10      # early stopping patience
+patience  = 30      # early stopping patience
 batch_size = 3000
 num_beams = 10
 tgt_len   = 4   # RQ-VAE code 길이 (c1, c2, c3, col)
